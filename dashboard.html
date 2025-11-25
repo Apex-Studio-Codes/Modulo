@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modulo | Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dashboard">
+  <div class="gradient-bg"></div>
+  <div class="dashboard-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <img src="imgs/modulo.png" alt="Modulo logo">
+        <div>
+          <p class="eyebrow">Modulo</p>
+          <strong>Control Center</strong>
+        </div>
+      </div>
+      <nav class="nav">
+        <a href="#" class="nav-item active">Workspace</a>
+        <a href="#" class="nav-item muted">Data</a>
+        <a href="#" class="nav-item muted">Settings</a>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="ghost" id="logoutBtn">Sign out</button>
+      </div>
+    </aside>
+
+    <section class="board">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Dashboard</p>
+          <h1>Whiteboard workspace</h1>
+        </div>
+        <div class="topbar-actions">
+          <select id="moduleType" aria-label="Select module type">
+            <option value="note">Notes</option>
+            <option value="calendar">Calendar</option>
+            <option value="task-list">Task list</option>
+          </select>
+          <button class="primary" id="addModuleBtn">+ Add module</button>
+        </div>
+      </header>
+
+      <section class="workspace" id="workspace">
+        <div class="status status-bar" id="workspaceStatus" role="status" aria-live="polite"></div>
+        <div class="module-grid" id="moduleGrid">
+          <!-- Modules will render here -->
+        </div>
+      </section>
+    </section>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
