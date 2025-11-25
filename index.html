@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modulo | Access</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="gradient-bg"></div>
+  <main class="shell">
+    <section class="panel">
+      <aside class="brand">
+        <img src="imgs/modulo.png" alt="Modulo logo" class="logo">
+        <div class="brand-copy">
+          <p class="eyebrow">Welcome back</p>
+          <h1>Modulo Control Center</h1>
+          <p class="lede">Sign in to orchestrate data flows or create a fresh account to get started.</p>
+        </div>
+      </aside>
+
+      <section class="auth">
+        <header class="auth-header">
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-target="login" aria-selected="true" role="tab">Log in</button>
+            <button class="tab" data-target="register" aria-selected="false" role="tab">Create account</button>
+          </div>
+          <p class="hint">Use your workspace credentials or register below.</p>
+        </header>
+
+        <form id="loginForm" class="form visible" autocomplete="on" novalidate>
+          <label>
+            <span>Email</span>
+            <input type="email" name="email" placeholder="you@modulo.io" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" name="password" placeholder="********" required minlength="8">
+          </label>
+          <button type="submit" class="primary">Log in</button>
+        </form>
+
+        <form id="registerForm" class="form" autocomplete="on" novalidate>
+          <div class="grid-2">
+            <label>
+              <span>First name</span>
+              <input type="text" name="firstName" placeholder="Jamie" required>
+            </label>
+            <label>
+              <span>Last name</span>
+              <input type="text" name="lastName" placeholder="Lee" required>
+            </label>
+          </div>
+          <label>
+            <span>Email</span>
+            <input type="email" name="email" placeholder="you@modulo.io" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" name="password" placeholder="Create a strong password" required minlength="8">
+          </label>
+          <button type="submit" class="primary">Create account</button>
+        </form>
+
+        <div class="status" id="statusBar" role="status" aria-live="polite"></div>
+      </section>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
