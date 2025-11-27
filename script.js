@@ -10,9 +10,12 @@ const workspace = document.getElementById('workspace');
 const moduleGrid = document.getElementById('moduleGrid');
 const workspaceStatus = document.getElementById('workspaceStatus');
 const moduleTypeSelect = document.getElementById('moduleType');
+const layoutModeSelect = document.getElementById('layoutMode');
 const addModuleBtn = document.getElementById('addModuleBtn');
 const logoutBtn = document.getElementById('logoutBtn');
 let localModules = [];
+const sizeDefaults = { small: 280, medium: 360, large: 520 };
+let layoutMode = localStorage.getItem('moduloLayoutMode') || 'snap';
 
 if (loginForm && registerForm && tabs.length) {
   initAuthUI();
@@ -84,7 +87,7 @@ async function initDashboard() {
   const token = getToken();
   if (!token) {
     setStatus('Sign in to load your modules.', 'error', workspaceStatus);
-    localModules = sampleModules();
+    localModules = sampleModules().map(normalizeModule);
     renderModules(localModules);
     return;
   }
@@ -108,16 +111,26 @@ async function initDashboard() {
       }
     });
   }
+
+  if (layoutModeSelect) {
+    layoutModeSelect.value = layoutMode;
+    layoutModeSelect.addEventListener('change', () => {
+      layoutMode = layoutModeSelect.value;
+      localStorage.setItem('moduloLayoutMode', layoutMode);
+      renderModules(localModules);
+    });
+  }
 }
 
 async function loadModules() {
   try {
-    const modules = await fetchModules();
-    renderModules(modules.length ? modules : sampleModules());
-    localModules = modules.length ? modules : sampleModules();
+    const modules = (await fetchModules()).map(normalizeModule);
+    const fallback = sampleModules().map(normalizeModule);
+    localModules = modules.length ? modules : fallback;
+    renderModules(localModules);
     clearStatus(workspaceStatus);
   } catch (error) {
-    localModules = sampleModules();
+    localModules = sampleModules().map(normalizeModule);
     renderModules(localModules);
     setStatus('Showing sample modules. Connect to the API to load yours.', 'error', workspaceStatus);
   }
@@ -134,26 +147,52 @@ async function fetchModules() {
 
 function renderModules(modules) {
   if (!moduleGrid) return;
+  moduleGrid.classList.toggle('free-layout', layoutMode === 'free');
+  moduleGrid.classList.toggle('snap-layout', layoutMode !== 'free');
+  if (layoutMode === 'free') {
+    assignFreePositions(modules);
+  }
   moduleGrid.innerHTML = '';
   modules.forEach((mod, index) => moduleGrid.appendChild(renderModuleCard(mod, index)));
 }
 
 function renderModuleCard(module, index) {
+  const isFree = layoutMode === 'free';
   const card = document.createElement('div');
   card.className = `module-card size-${module.size || 'medium'}`;
   card.style.background = module.color || '#ffffff';
-  card.draggable = true;
+  card.style.width = `${module.width || sizeDefaults[module.size || 'medium'] || 360}px`;
+  card.style.height = `${module.height || 260}px`;
+  card.draggable = false;
+  card.style.position = isFree ? 'absolute' : 'relative';
+  if (isFree) {
+    const { x = 12, y = 12 } = module.position || {};
+    card.style.left = `${x}px`;
+    card.style.top = `${y}px`;
+  } else {
+    card.style.left = '';
+    card.style.top = '';
+  }
   card.dataset.index = index;
 
-  card.addEventListener('dragstart', (e) => handleDragStart(e, card));
-  card.addEventListener('dragover', (e) => handleDragOver(e, card));
-  card.addEventListener('drop', (e) => handleDrop(e, card));
-  card.addEventListener('dragend', () => card.classList.remove('dragging'));
+  if (!isFree) {
+    card.addEventListener('dragover', (e) => handleDragOver(e, card));
+    card.addEventListener('drop', (e) => handleDrop(e, card));
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+  }
 
   const title = module.title || prettifyType(module.type);
   const chipLabel = module.type ? prettifyType(module.type) : 'Module';
 
   const header = document.createElement('header');
+  header.className = 'module-header';
+  header.draggable = !isFree;
+  if (isFree) {
+    header.addEventListener('pointerdown', (e) => startFreeDrag(e, card, index));
+  } else {
+    header.addEventListener('dragstart', (e) => handleDragStart(e, card));
+    header.addEventListener('dragend', () => card.classList.remove('dragging'));
+  }
   const left = document.createElement('div');
   left.style.display = 'flex';
   left.style.gap = '8px';
@@ -176,19 +215,35 @@ function renderModuleCard(module, index) {
     <option value="large">L</option>
   `;
   sizeSelect.value = module.size || 'medium';
-  sizeSelect.addEventListener('change', () => updateModule(index, { size: sizeSelect.value }));
+  ['pointerdown', 'mousedown', 'click', 'dragstart'].forEach((evt) =>
+    sizeSelect.addEventListener(evt, (e) => e.stopPropagation())
+  );
+  sizeSelect.addEventListener('change', () =>
+    updateModule(index, { size: sizeSelect.value, width: sizeDefaults[sizeSelect.value] })
+  );
 
   const colorInput = document.createElement('input');
   colorInput.type = 'color';
   colorInput.className = 'color-input';
   colorInput.value = normalizeColor(module.color || '#ffffff');
-  colorInput.addEventListener('input', () => updateModule(index, { color: colorInput.value }));
+  ['pointerdown', 'mousedown', 'click', 'dragstart'].forEach((evt) =>
+    colorInput.addEventListener(evt, (e) => e.stopPropagation())
+  );
+  colorInput.addEventListener('input', () => {
+    updateModule(index, { color: colorInput.value }, { render: false, persist: false });
+    const hostCard = colorInput.closest('.module-card');
+    if (hostCard) hostCard.style.background = colorInput.value;
+  });
+  colorInput.addEventListener('change', () => persistModules());
 
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'icon-btn';
   deleteBtn.type = 'button';
   deleteBtn.title = 'Delete module';
-  deleteBtn.textContent = '×';
+  deleteBtn.textContent = 'X';
+  ['pointerdown', 'mousedown', 'click', 'dragstart'].forEach((evt) =>
+    deleteBtn.addEventListener(evt, (e) => e.stopPropagation())
+  );
   deleteBtn.addEventListener('click', () => deleteModule(index));
 
   actions.appendChild(sizeSelect);
@@ -200,57 +255,580 @@ function renderModuleCard(module, index) {
 
   const content = document.createElement('div');
   content.className = 'module-content';
-  content.appendChild(renderModuleContent(module));
+  content.appendChild(renderModuleContent(module, index));
 
   card.appendChild(header);
+  card.appendChild(buildResizeHandle(card, index));
   card.appendChild(content);
   return card;
 }
 
-function renderModuleContent(module) {
+function renderModuleContent(module, index) {
   const type = module.type || 'note';
-  const container = document.createElement('div');
-
   if (type === 'calendar') {
-    container.className = 'calendar-grid';
-    const days = module.days || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    days.forEach((day) => {
-      const cell = document.createElement('div');
-      cell.className = 'calendar-day';
-      cell.textContent = day;
-      container.appendChild(cell);
-    });
-    return container;
+    return renderCalendar(module, index);
   }
 
   if (type === 'task-list') {
-    container.className = 'note-list';
-    const tasks = module.items || ['Sync data sources', 'Review alerts', 'Plan next sprint'];
-    tasks.forEach((task) => {
-      const item = document.createElement('div');
-      item.className = 'note';
-      item.textContent = task;
-      container.appendChild(item);
-    });
-    return container;
+    return renderTasks(module, index);
   }
 
-  container.className = 'note-list';
-  const notes = module.items || ['Capture ideas...', 'Drop quick notes for your team.'];
-  notes.forEach((note) => {
-    const item = document.createElement('div');
-    item.className = 'note';
-    item.textContent = note;
-    container.appendChild(item);
+  return renderNotes(module, index);
+}
+
+function renderNotes(module, index) {
+  const container = document.createElement('div');
+  container.className = 'editable-list';
+
+  const list = document.createElement('div');
+  list.className = 'editable-list-items';
+  const notes = module.items?.length ? module.items : [{ id: createId(), text: 'Capture ideas...' }];
+
+  notes.forEach((note, noteIndex) => {
+    const row = document.createElement('div');
+    row.className = 'editable-row';
+
+    const textarea = document.createElement('textarea');
+    textarea.value = note.text || '';
+    textarea.placeholder = 'Note text';
+    textarea.rows = 2;
+    textarea.addEventListener('input', (e) => {
+      const next = cloneItems(index);
+      next[noteIndex] = { ...next[noteIndex], text: e.target.value };
+      updateModule(index, { items: next }, { render: false, persist: false });
+    });
+    textarea.addEventListener('blur', () => persistModules());
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'mini-btn';
+    deleteBtn.type = 'button';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => {
+      const next = cloneItems(index);
+      next.splice(noteIndex, 1);
+      updateModule(index, { items: next.length ? next : [{ id: createId(), text: '' }] });
+    });
+
+    row.appendChild(textarea);
+    row.appendChild(deleteBtn);
+    list.appendChild(row);
   });
+
+  const addForm = document.createElement('form');
+  addForm.className = 'add-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Add note';
+  const addBtn = document.createElement('button');
+  addBtn.type = 'submit';
+  addBtn.textContent = 'Add';
+  addForm.appendChild(input);
+  addForm.appendChild(addBtn);
+  addForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const value = input.value.trim();
+    if (!value) return;
+    const next = cloneItems(index);
+    next.push({ id: createId(), text: value });
+    updateModule(index, { items: next });
+    input.value = '';
+  });
+
+  container.appendChild(list);
+  container.appendChild(addForm);
   return container;
+}
+
+function renderTasks(module, index) {
+  const container = document.createElement('div');
+  container.className = 'editable-list';
+
+  const list = document.createElement('div');
+  list.className = 'editable-list-items';
+  const tasks = module.items || [];
+
+  tasks.forEach((task, taskIndex) => {
+    const row = document.createElement('div');
+    row.className = 'editable-row';
+    if (task.done) row.classList.add('done');
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = Boolean(task.done);
+    checkbox.addEventListener('change', () => {
+      const next = cloneItems(index);
+      next[taskIndex] = { ...next[taskIndex], done: checkbox.checked };
+      updateModule(index, { items: next }, { render: false });
+      row.classList.toggle('done', checkbox.checked);
+    });
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = task.text || '';
+    input.placeholder = 'Task description';
+    input.addEventListener('input', (e) => {
+      const next = cloneItems(index);
+      next[taskIndex] = { ...next[taskIndex], text: e.target.value };
+      updateModule(index, { items: next }, { render: false, persist: false });
+    });
+    input.addEventListener('blur', () => persistModules());
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'mini-btn';
+    deleteBtn.type = 'button';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => {
+      const next = cloneItems(index);
+      next.splice(taskIndex, 1);
+      updateModule(index, { items: next });
+    });
+
+    row.appendChild(checkbox);
+    row.appendChild(input);
+    row.appendChild(deleteBtn);
+    list.appendChild(row);
+  });
+
+  const addForm = document.createElement('form');
+  addForm.className = 'add-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Add task';
+  const addBtn = document.createElement('button');
+  addBtn.type = 'submit';
+  addBtn.textContent = 'Add';
+  addForm.appendChild(input);
+  addForm.appendChild(addBtn);
+  addForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const value = input.value.trim();
+    if (!value) return;
+    const next = cloneItems(index);
+    next.push({ id: createId(), text: value, done: false });
+    updateModule(index, { items: next });
+    input.value = '';
+  });
+
+  container.appendChild(list);
+  container.appendChild(addForm);
+  return container;
+}
+
+function renderCalendar(module, index) {
+  const container = document.createElement('div');
+  container.className = 'calendar-shell';
+  const events = module.items || [];
+  const view = module.view || 'monthly';
+  const baseDate = module.viewDate || todaysDate();
+
+  const controls = document.createElement('div');
+  controls.className = 'calendar-controls';
+
+  const viewSelect = document.createElement('select');
+  viewSelect.innerHTML = `
+    <option value="daily">Daily</option>
+    <option value="weekly">Weekly</option>
+    <option value="monthly">Monthly</option>
+  `;
+  viewSelect.value = view;
+  ['pointerdown', 'mousedown', 'click', 'dragstart'].forEach((evt) =>
+    viewSelect.addEventListener(evt, (e) => e.stopPropagation())
+  );
+  viewSelect.addEventListener('change', () => updateModule(index, { view: viewSelect.value }));
+
+  const datePicker = document.createElement('input');
+  datePicker.type = 'date';
+  datePicker.value = baseDate;
+  ['pointerdown', 'mousedown', 'click', 'dragstart'].forEach((evt) =>
+    datePicker.addEventListener(evt, (e) => e.stopPropagation())
+  );
+  datePicker.addEventListener('change', () => updateModule(index, { viewDate: datePicker.value || todaysDate() }));
+
+  controls.appendChild(viewSelect);
+  controls.appendChild(datePicker);
+
+  const body = document.createElement('div');
+  body.className = 'calendar-view';
+
+  if (view === 'daily') {
+    body.appendChild(renderDailyCalendar(events, baseDate));
+  } else if (view === 'weekly') {
+    body.appendChild(renderWeeklyCalendar(events, baseDate));
+  } else {
+    body.appendChild(renderMonthlyCalendar(events, baseDate));
+  }
+
+  const editor = document.createElement('div');
+  editor.className = 'calendar-editor';
+  events.forEach((event, eventIndex) => {
+    const row = document.createElement('div');
+    row.className = 'editable-row calendar-editor-row';
+
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.value = event.date || todaysDate();
+    dateInput.addEventListener('change', (e) => {
+      const next = cloneItems(index);
+      next[eventIndex] = { ...next[eventIndex], date: e.target.value };
+      updateModule(index, { items: next }, { render: false });
+      persistModules();
+    });
+
+    const textInput = document.createElement('input');
+    textInput.type = 'text';
+    textInput.placeholder = 'Event';
+    textInput.value = event.text || '';
+    textInput.addEventListener('input', (e) => {
+      const next = cloneItems(index);
+      next[eventIndex] = { ...next[eventIndex], text: e.target.value };
+      updateModule(index, { items: next }, { render: false, persist: false });
+    });
+    textInput.addEventListener('blur', () => persistModules());
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'mini-btn';
+    deleteBtn.type = 'button';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => {
+      const next = cloneItems(index);
+      next.splice(eventIndex, 1);
+      updateModule(index, { items: next });
+    });
+
+    row.appendChild(dateInput);
+    row.appendChild(textInput);
+    row.appendChild(deleteBtn);
+    editor.appendChild(row);
+  });
+
+  const addForm = document.createElement('form');
+  addForm.className = 'add-row calendar-add';
+  const addDateInput = document.createElement('input');
+  addDateInput.type = 'date';
+  addDateInput.value = baseDate;
+  const addTextInput = document.createElement('input');
+  addTextInput.type = 'text';
+  addTextInput.placeholder = 'Add calendar item';
+  const addBtn = document.createElement('button');
+  addBtn.type = 'submit';
+  addBtn.textContent = 'Add';
+  addForm.appendChild(addDateInput);
+  addForm.appendChild(addTextInput);
+  addForm.appendChild(addBtn);
+  addForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = addTextInput.value.trim();
+    if (!text) return;
+    const next = cloneItems(index);
+    next.push({ id: createId(), date: addDateInput.value || todaysDate(), text });
+    updateModule(index, { items: next });
+    addTextInput.value = '';
+  });
+
+  container.appendChild(controls);
+  container.appendChild(body);
+  container.appendChild(editor);
+  container.appendChild(addForm);
+  return container;
+}
+
+function renderDailyCalendar(events, baseDate) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'calendar-daily';
+  const header = document.createElement('div');
+  header.className = 'calendar-view-header';
+  header.textContent = formatDateLabel(baseDate, { long: true });
+  wrapper.appendChild(header);
+
+  const dayEvents = events.filter((ev) => isSameDay(ev.date, baseDate));
+  if (!dayEvents.length) {
+    const empty = document.createElement('p');
+    empty.className = 'calendar-empty';
+    empty.textContent = 'No events for this day.';
+    wrapper.appendChild(empty);
+    return wrapper;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'calendar-event-list';
+  dayEvents.forEach((ev) => {
+    const chip = document.createElement('div');
+    chip.className = 'calendar-chip';
+    chip.textContent = ev.text || 'Untitled';
+    list.appendChild(chip);
+  });
+  wrapper.appendChild(list);
+  return wrapper;
+}
+
+function renderWeeklyCalendar(events, baseDate) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'calendar-week';
+  const weekDates = getWeekDates(baseDate);
+
+  weekDates.forEach((dateStr) => {
+    const col = document.createElement('div');
+    col.className = 'calendar-week-day';
+    const title = document.createElement('div');
+    title.className = 'calendar-week-title';
+    title.textContent = formatDateLabel(dateStr);
+    col.appendChild(title);
+
+    const dayEvents = events.filter((ev) => isSameDay(ev.date, dateStr));
+    if (!dayEvents.length) {
+      const empty = document.createElement('p');
+      empty.className = 'calendar-empty';
+      empty.textContent = '—';
+      col.appendChild(empty);
+    } else {
+      dayEvents.forEach((ev) => {
+        const chip = document.createElement('div');
+        chip.className = 'calendar-chip';
+        chip.textContent = ev.text || 'Untitled';
+        col.appendChild(chip);
+      });
+    }
+    wrapper.appendChild(col);
+  });
+  return wrapper;
+}
+
+function renderMonthlyCalendar(events, baseDate) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'calendar-month';
+  const cells = getMonthCells(baseDate);
+  cells.forEach((cell) => {
+    const day = document.createElement('div');
+    day.className = 'calendar-month-cell';
+    if (!cell.inMonth) day.classList.add('muted');
+    if (cell.isToday) day.classList.add('today');
+    if (cell.date === baseDate) day.classList.add('active');
+
+    const label = document.createElement('div');
+    label.className = 'calendar-month-label';
+    label.textContent = cell.label;
+    day.appendChild(label);
+
+    const dayEvents = events.filter((ev) => isSameDay(ev.date, cell.date));
+    dayEvents.slice(0, 3).forEach((ev) => {
+      const chip = document.createElement('div');
+      chip.className = 'calendar-chip';
+      chip.textContent = ev.text || 'Untitled';
+      day.appendChild(chip);
+    });
+    if (dayEvents.length > 3) {
+      const more = document.createElement('div');
+      more.className = 'calendar-more';
+      more.textContent = `+${dayEvents.length - 3} more`;
+      day.appendChild(more);
+    }
+
+    wrapper.appendChild(day);
+  });
+  return wrapper;
+}
+
+function buildResizeHandle(card, index) {
+  const handle = document.createElement('div');
+  handle.className = 'resize-handle';
+  let startX = 0;
+  let startY = 0;
+  let startW = 0;
+  let startH = 0;
+
+  const onPointerMove = (event) => {
+    const deltaX = event.clientX - startX;
+    const deltaY = event.clientY - startY;
+    const newWidth = Math.max(240, startW + deltaX);
+    const newHeight = Math.max(160, startH + deltaY);
+    card.style.width = `${newWidth}px`;
+    card.style.height = `${newHeight}px`;
+  };
+
+  const onPointerUp = (event) => {
+    handle.releasePointerCapture(event.pointerId);
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    const width = Math.round(parseFloat(card.style.width));
+    const height = Math.round(parseFloat(card.style.height));
+    updateModule(index, { width, height });
+  };
+
+  handle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = card.getBoundingClientRect();
+    startX = event.clientX;
+    startY = event.clientY;
+    startW = rect.width;
+    startH = rect.height;
+    handle.setPointerCapture(event.pointerId);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  });
+
+  return handle;
+}
+
+function normalizeModule(module = {}) {
+  const normalized = { ...module };
+  normalized.type = module.type || 'note';
+  normalized.size = module.size || 'medium';
+  normalized.view = module.view || 'monthly';
+  normalized.viewDate = module.viewDate || todaysDate();
+  normalized.items = normalizeItems(module.items, normalized.type);
+  normalized.width = module.width ? Number(module.width) : sizeDefaults[normalized.size] || 360;
+  normalized.height = module.height ? Number(module.height) : 260;
+  normalized.position =
+    module.position && typeof module.position.x === 'number' && typeof module.position.y === 'number'
+      ? { x: Number(module.position.x), y: Number(module.position.y) }
+      : null;
+  return normalized;
+}
+
+function normalizeItems(items, type = 'note') {
+  const list = Array.isArray(items) ? items : [];
+  if (type === 'calendar') {
+    return list.map((item) => ({
+      id: item?.id || createId(),
+      date: item?.date || todaysDate(),
+      text: item?.text || (typeof item === 'string' ? item : ''),
+    }));
+  }
+  if (type === 'task-list') {
+    return list.map((item) => ({
+      id: item?.id || createId(),
+      text: item?.text ?? (typeof item === 'string' ? item : ''),
+      done: Boolean(item?.done),
+    }));
+  }
+  return list.map((item) => ({
+    id: item?.id || createId(),
+    text: item?.text ?? (typeof item === 'string' ? item : ''),
+  }));
+}
+
+function cloneItems(index) {
+  const items = localModules[index]?.items || [];
+  return items.map((item) => ({ ...item }));
+}
+
+function assignFreePositions(modules) {
+  const gap = 14;
+  const containerWidth = moduleGrid?.clientWidth || 1000;
+  const columnWidth = 400;
+  const columns = Math.max(1, Math.floor(containerWidth / columnWidth));
+  const colHeights = new Array(columns).fill(gap);
+
+  modules.forEach((mod, idx) => {
+    if (mod.position) return;
+    const targetCol = colHeights.indexOf(Math.min(...colHeights));
+    const x = gap + targetCol * columnWidth;
+    const y = colHeights[targetCol];
+    mod.position = { x, y };
+    colHeights[targetCol] += (mod.height || 260) + gap;
+  });
+}
+
+function createId() {
+  return Math.random().toString(36).slice(2, 9);
+}
+
+function todaysDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function shiftDate(daysFromToday = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromToday);
+  return date.toISOString().slice(0, 10);
+}
+
+function toDate(dateLike) {
+  const d = new Date(dateLike || todaysDate());
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+function isSameDay(a, b) {
+  const da = toDate(a);
+  const db = toDate(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
+function formatDateLabel(dateStr, options = {}) {
+  const d = toDate(dateStr);
+  return d.toLocaleDateString(undefined, options.long ? { weekday: 'long', month: 'long', day: 'numeric' } : { weekday: 'short', day: 'numeric' });
+}
+
+function getWeekDates(anchor) {
+  const base = toDate(anchor);
+  const day = base.getDay();
+  const diff = day === 0 ? -6 : 1 - day; // Monday start
+  const monday = new Date(base);
+  monday.setDate(base.getDate() + diff);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
+function getMonthCells(anchor) {
+  const base = toDate(anchor);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const first = new Date(year, month, 1);
+  const startDay = (first.getDay() + 6) % 7; // Monday start
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = 42;
+  const cells = [];
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - startDay + 1;
+    const cellDate = new Date(year, month, dayNum);
+    const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
+    const iso = cellDate.toISOString().slice(0, 10);
+    cells.push({
+      label: cellDate.getDate(),
+      date: iso,
+      inMonth,
+      isToday: isSameDay(iso, todaysDate()),
+    });
+  }
+  return cells;
 }
 
 function sampleModules() {
   return [
-    { type: 'calendar', title: 'Team calendar', size: 'large' },
-    { type: 'note', title: 'Notes', items: ['Welcome to your workspace', 'Connect the API to load your data'], size: 'small' },
-    { type: 'task-list', title: 'Tasks', size: 'medium' },
+    {
+      type: 'calendar',
+      title: 'Team calendar',
+      size: 'large',
+      view: 'monthly',
+      viewDate: todaysDate(),
+      items: [
+        { id: createId(), date: todaysDate(), text: 'Sprint planning' },
+        { id: createId(), date: shiftDate(2), text: 'Data sync' },
+      ],
+    },
+    {
+      type: 'note',
+      title: 'Notes',
+      items: [
+        { id: createId(), text: 'Welcome to your workspace' },
+        { id: createId(), text: 'Connect the API to load your data' },
+      ],
+      size: 'small',
+    },
+    {
+      type: 'task-list',
+      title: 'Tasks',
+      items: [
+        { id: createId(), text: 'Sync data sources', done: false },
+        { id: createId(), text: 'Review alerts', done: false },
+        { id: createId(), text: 'Plan next sprint', done: true },
+      ],
+      size: 'medium',
+    },
   ];
 }
 
@@ -285,10 +863,45 @@ function handleDrop(event, card) {
   card.classList.remove('dragging');
 }
 
-function updateModule(index, changes) {
-  localModules[index] = { ...localModules[index], ...changes };
-  renderModules(localModules);
-  persistModules();
+function startFreeDrag(event, card, index) {
+  if (layoutMode !== 'free') return;
+  event.preventDefault();
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const currentLeft = parseFloat(card.style.left) || 0;
+  const currentTop = parseFloat(card.style.top) || 0;
+
+  const onMove = (e) => {
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+    const newX = Math.max(0, currentLeft + deltaX);
+    const newY = Math.max(0, currentTop + deltaY);
+    card.style.left = `${newX}px`;
+    card.style.top = `${newY}px`;
+  };
+
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    const finalX = Math.round(parseFloat(card.style.left) || 0);
+    const finalY = Math.round(parseFloat(card.style.top) || 0);
+    updateModule(index, { position: { x: finalX, y: finalY } }, { render: false });
+    persistModules();
+  };
+
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+}
+
+function updateModule(index, changes, options = {}) {
+  const updated = { ...localModules[index], ...changes };
+  localModules[index] = normalizeModule(updated);
+  if (options.render !== false) {
+    renderModules(localModules);
+  }
+  if (options.persist !== false) {
+    persistModules();
+  }
 }
 
 function deleteModule(index) {
@@ -389,4 +1002,5 @@ function handleLogout() {
   localStorage.removeItem(TOKEN_KEY);
   window.location.href = 'index.html';
 }
+
 
