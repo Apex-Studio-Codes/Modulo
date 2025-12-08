@@ -403,6 +403,72 @@ select {
   margin: 0;
 }
 
+.fab-container {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  align-items: end;
+}
+
+.fab-toggle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #f6f5f0;
+  font-size: 30px;
+  line-height: 1;
+  box-shadow: 0 14px 28px rgba(31, 43, 69, 0.25);
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.fab-toggle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(31, 43, 69, 0.32);
+}
+
+.fab-toggle.open {
+  transform: rotate(45deg);
+  background: var(--accent-strong);
+}
+
+.fab-menu {
+  min-width: 260px;
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(12, 19, 34, 0.16);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.fab-menu[hidden] {
+  display: none;
+}
+
+.fab-section {
+  display: grid;
+  gap: 6px;
+}
+
+.fab-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.fab-add {
+  width: auto;
+  padding-inline: 14px;
+}
+
 .module-grid {
   flex: 1;
   overflow: auto;
@@ -481,6 +547,13 @@ select {
 .icon-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+}
+
+.icon-btn svg,
+.mini-btn svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
 }
 
 .color-input {
@@ -654,12 +727,16 @@ select {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
 }
 
 .editable-list-items {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
+  min-height: 0;
 }
 
 .editable-row {
@@ -679,6 +756,17 @@ select {
   resize: vertical;
   min-height: 64px;
   font-family: var(--font);
+}
+
+.note-row {
+  grid-template-columns: 1fr auto;
+  align-items: stretch;
+}
+
+.note-row textarea {
+  height: 100%;
+  min-height: 80px;
+  align-self: stretch;
 }
 
 .editable-row input[type='text'] {

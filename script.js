@@ -12,10 +12,46 @@ const workspaceStatus = document.getElementById('workspaceStatus');
 const moduleTypeSelect = document.getElementById('moduleType');
 const layoutModeSelect = document.getElementById('layoutMode');
 const addModuleBtn = document.getElementById('addModuleBtn');
+const fabToggle = document.getElementById('fabToggle');
+const fabMenu = document.getElementById('fabMenu');
 const logoutBtn = document.getElementById('logoutBtn');
 let localModules = [];
 const sizeDefaults = { small: 280, medium: 360, large: 520 };
 let layoutMode = localStorage.getItem('moduloLayoutMode') || 'snap';
+const TRASH_ICON = `
+  <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="3 6 5 6 21 6"></polyline>
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+    <line x1="10" y1="11" x2="10" y2="17"></line>
+    <line x1="14" y1="11" x2="14" y2="17"></line>
+  </svg>
+`;
+
+function setTrashIcon(button, label) {
+  button.innerHTML = TRASH_ICON.trim();
+  if (label) {
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  }
+}
+
+function toggleFab(open = true) {
+  if (!fabMenu || !fabToggle) return;
+  if (open) {
+    fabMenu.removeAttribute('hidden');
+    fabToggle.classList.add('open');
+    fabToggle.setAttribute('aria-expanded', 'true');
+  } else {
+    fabMenu.setAttribute('hidden', '');
+    fabToggle.classList.remove('open');
+    fabToggle.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function closeFab() {
+  toggleFab(false);
+}
 
 if (loginForm && registerForm && tabs.length) {
   initAuthUI();
@@ -84,19 +120,40 @@ function initAuthUI() {
 }
 
 async function initDashboard() {
+  const isAuthed = Boolean(getToken());
+
+  if (fabToggle && fabMenu) {
+    fabToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = fabMenu.hasAttribute('hidden');
+      toggleFab(open);
+    });
+
+    document.addEventListener('click', (e) => {
+      if (fabMenu.hasAttribute('hidden')) return;
+      if (fabMenu.contains(e.target) || fabToggle.contains(e.target)) return;
+      closeFab();
+    });
+  }
+
   const token = getToken();
   if (!token) {
     setStatus('Sign in to load your modules.', 'error', workspaceStatus);
     localModules = sampleModules().map(normalizeModule);
     renderModules(localModules);
-    return;
+  } else {
+    await loadModules();
   }
-
-  await loadModules();
 
   if (addModuleBtn) {
     addModuleBtn.addEventListener('click', async () => {
       const type = moduleTypeSelect?.value || 'note';
+      closeFab();
+      if (!isAuthed) {
+        localModules.push(normalizeModule({ type, title: prettifyType(type) }));
+        renderModules(localModules);
+        return;
+      }
       try {
         await submitRequest(
           '/modules',
@@ -118,6 +175,7 @@ async function initDashboard() {
       layoutMode = layoutModeSelect.value;
       localStorage.setItem('moduloLayoutMode', layoutMode);
       renderModules(localModules);
+      closeFab();
     });
   }
 }
@@ -208,20 +266,6 @@ function renderModuleCard(module, index) {
   const actions = document.createElement('div');
   actions.className = 'module-actions';
 
-  const sizeSelect = document.createElement('select');
-  sizeSelect.innerHTML = `
-    <option value="small">S</option>
-    <option value="medium">M</option>
-    <option value="large">L</option>
-  `;
-  sizeSelect.value = module.size || 'medium';
-  ['pointerdown', 'mousedown', 'click', 'dragstart'].forEach((evt) =>
-    sizeSelect.addEventListener(evt, (e) => e.stopPropagation())
-  );
-  sizeSelect.addEventListener('change', () =>
-    updateModule(index, { size: sizeSelect.value, width: sizeDefaults[sizeSelect.value] })
-  );
-
   const colorInput = document.createElement('input');
   colorInput.type = 'color';
   colorInput.className = 'color-input';
@@ -239,14 +283,12 @@ function renderModuleCard(module, index) {
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'icon-btn';
   deleteBtn.type = 'button';
-  deleteBtn.title = 'Delete module';
-  deleteBtn.textContent = 'X';
+  setTrashIcon(deleteBtn, 'Delete module');
   ['pointerdown', 'mousedown', 'click', 'dragstart'].forEach((evt) =>
     deleteBtn.addEventListener(evt, (e) => e.stopPropagation())
   );
   deleteBtn.addEventListener('click', () => deleteModule(index));
 
-  actions.appendChild(sizeSelect);
   actions.appendChild(colorInput);
   actions.appendChild(deleteBtn);
 
@@ -286,7 +328,7 @@ function renderNotes(module, index) {
 
   notes.forEach((note, noteIndex) => {
     const row = document.createElement('div');
-    row.className = 'editable-row';
+    row.className = 'editable-row note-row';
 
     const textarea = document.createElement('textarea');
     textarea.value = note.text || '';
@@ -302,7 +344,7 @@ function renderNotes(module, index) {
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'mini-btn';
     deleteBtn.type = 'button';
-    deleteBtn.textContent = 'Delete';
+    setTrashIcon(deleteBtn, 'Delete note');
     deleteBtn.addEventListener('click', () => {
       const next = cloneItems(index);
       next.splice(noteIndex, 1);
@@ -376,7 +418,7 @@ function renderTasks(module, index) {
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'mini-btn';
     deleteBtn.type = 'button';
-    deleteBtn.textContent = 'Delete';
+    setTrashIcon(deleteBtn, 'Delete task');
     deleteBtn.addEventListener('click', () => {
       const next = cloneItems(index);
       next.splice(taskIndex, 1);
@@ -488,7 +530,7 @@ function renderCalendar(module, index) {
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'mini-btn';
     deleteBtn.type = 'button';
-    deleteBtn.textContent = 'Delete';
+    setTrashIcon(deleteBtn, 'Delete calendar item');
     deleteBtn.addEventListener('click', () => {
       const next = cloneItems(index);
       next.splice(eventIndex, 1);
@@ -920,6 +962,7 @@ function normalizeColor(color) {
 }
 
 async function persistModules() {
+  if (!getToken()) return;
   try {
     await submitRequest('/modules', { modules: localModules }, null, workspaceStatus, {
       auth: true,
@@ -1002,5 +1045,9 @@ function handleLogout() {
   localStorage.removeItem(TOKEN_KEY);
   window.location.href = 'index.html';
 }
+
+
+
+
 
 

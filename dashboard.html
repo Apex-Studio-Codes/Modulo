@@ -28,25 +28,6 @@
     </aside>
 
     <section class="board">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Dashboard</p>
-          <h1>Whiteboard workspace</h1>
-        </div>
-        <div class="topbar-actions">
-          <select id="moduleType" aria-label="Select module type">
-            <option value="note">Notes</option>
-            <option value="calendar">Calendar</option>
-            <option value="task-list">Task list</option>
-          </select>
-          <select id="layoutMode" aria-label="Layout mode">
-            <option value="snap">Snap</option>
-            <option value="free">Free</option>
-          </select>
-          <button class="primary" id="addModuleBtn">+ Add module</button>
-        </div>
-      </header>
-
       <section class="workspace" id="workspace">
         <div class="status status-bar" id="workspaceStatus" role="status" aria-live="polite"></div>
         <div class="module-grid" id="moduleGrid">
@@ -54,6 +35,32 @@
         </div>
       </section>
     </section>
+  </div>
+
+  <div class="fab-container">
+    <button class="fab-toggle" id="fabToggle" aria-expanded="false" aria-controls="fabMenu" aria-label="Open controls">
+      +
+    </button>
+    <div class="fab-menu" id="fabMenu" hidden>
+      <div class="fab-section">
+        <p class="eyebrow">Layout</p>
+        <select id="layoutMode" aria-label="Layout mode">
+          <option value="snap">Snap</option>
+          <option value="free">Free</option>
+        </select>
+      </div>
+      <div class="fab-section">
+        <p class="eyebrow">Add module</p>
+        <div class="fab-row">
+          <select id="moduleType" aria-label="Select module type">
+            <option value="note">Notes</option>
+            <option value="calendar">Calendar</option>
+            <option value="task-list">Task list</option>
+          </select>
+          <button class="primary fab-add" id="addModuleBtn">Add</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="script.js"></script>
